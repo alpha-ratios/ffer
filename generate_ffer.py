@@ -16,11 +16,11 @@ from xgboost import XGBRegressor
 
 
 SCRIPT_DESCRIPTION = "Calculate the market cap estimate, price estimate, and FFER given a " \
-                     "single-day CSV of individual stock financials. Calculations are saved in " \
+                     "CSV of individual stock financials. Calculations are saved in " \
                      "an output csv file. Output file will also include every dimension from the " \
                      "input csv. Calculation is done via a bagged-ensemble on the XGBoost model. " \
                      "To learn more about how the FFER works, consult the README or " \
-                     "fundamentalfittedestimateratio.com."
+                     "https://ffer.io."
 X_DIMENSIONS = [
     'totalAssets',
     'totalLiab',
