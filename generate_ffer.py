@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import List, Dict
 
+# import multiprocessing
 import pandas as pd
 import numpy as np
 from sklearn.metrics import r2_score
@@ -38,7 +39,7 @@ X_DIMENSIONS = [
     'returnOnAssetsDeltaY',
     'assetTurnoverRatioDeltaY',
     'debtRatioDeltaY',
-    ]
+]
 OTHER_REQUIRED_COLUMNS = [
     'ticker',
     'shares',
@@ -50,6 +51,7 @@ MIN_TRAINING_SIZE = 1000  # Less than 1000 and the error tends to rise significa
 IntByStrDict = Dict[str, int]
 ListOfStrs = List[str]
 ListOfDicts = List[dict]
+
 
 
 def split_df_x_y(df: pd.DataFrame, x_dimensions: ListOfStrs) -> (pd.DataFrame, IntByStrDict):
@@ -152,9 +154,12 @@ def generate_ffers_for_day(df: pd.DataFrame, dt=None, rounds=100) -> ListOfDicts
     all_scores = []
     raw_estimates_by_ticker = defaultdict(list)
 
-    for rand_state in range(rounds):
+    def train_and_log(rand_state):
         score, raw_estimates = train_and_estimate_once(df_x, df_y, row_idx_by_ticker, rand_state)
         logging.debug("%d rand_state. %.2f score", rand_state, score)
+        return score, raw_estimates
+
+    for score, raw_estimates in map(train_and_log, range(rounds)):
         if score < 0:
             continue
         all_scores.append(score)
