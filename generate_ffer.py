@@ -131,6 +131,7 @@ def calculate_overall_r2(df: pd.DataFrame, rounds: int) -> None:
     np_x, np_y, _, scalery = scale_dfs(df_x, df_y)
 
     scores = []
+    most_importants_raw = {i: 0 for i in range(len(X_DIMENSIONS))}
     for rand_state in range(rounds):
         x_train, x_test, y_train, y_test = train_test_split(np_x, np_y, test_size=0.1,
                                                             random_state=rand_state)
@@ -138,10 +139,23 @@ def calculate_overall_r2(df: pd.DataFrame, rounds: int) -> None:
                              n_estimators=20, subsample=.8)
         model.fit(np_x, np_y)
         y_estimate = model.predict(x_test)
+        for i, col in enumerate(model.feature_importances_):
+            most_importants_raw[i] += col
         scores.append(r2_score(y_test, y_estimate))
+
+    most_imporants = {}
+    for i, val in most_importants_raw.items():
+        most_imporants[X_DIMENSIONS[i]] = val
 
     logging.info("Avg r^2 over %d rows between %d different splits was %.2f",
                  len(df), rounds, sum(scores) / rounds)
+
+    total_importance = sum(most_imporants.values())
+    for col, importance_score in sorted(most_imporants.items(), reverse=True,
+                                        key=lambda tup: tup[1]):
+        percent_importance = importance_score / total_importance
+        most_imporants[col] = percent_importance
+        print("%s: %.2f%%" % (col, percent_importance * 100))
 
 
 def generate_ffers_for_day(df: pd.DataFrame, dt=None, single_ticker=None, rounds=None) -> ListOfDicts:
