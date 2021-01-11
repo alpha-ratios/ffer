@@ -191,7 +191,7 @@ def generate_for_day(df: pd.DataFrame, dt=None, tickers=None, rounds=None) -> Li
     def _gfds(ticker):
         return ticker, generate_ffe_for_ticker(ticker, df=df, rounds=rounds)
 
-    for ticker, estimate in fastmap.fastmap(_gfds, tickers):
+    for ticker, estimate in fastmap.fastmap(_gfds, list(tickers)):
         market_cap = float(df[(df.ticker == ticker)]['marketCap'])
         logging.info("FFER for %r: %.4f", ticker, market_cap / estimate)
         raw_estimate_by_ticker[ticker] = estimate
