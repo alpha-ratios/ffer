@@ -158,15 +158,15 @@ def calculate_overall_r2(df: pd.DataFrame, rounds: int) -> None:
         print("%s: %.2f%%" % (col, percent_importance * 100))
 
 
-def generate_ffers_for_day(df: pd.DataFrame, dt=None, single_ticker=None, rounds=None) -> ListOfDicts:
+def generate_for_day(df: pd.DataFrame, dt=None, tickers=None, rounds=None) -> ListOfDicts:
     """
     Given the input_csv, and the number of round, train <rounds> times and bag the results.
     """
 
     if dt:
-        logging.info(f"Training {rounds} rounds of {len(df)} stocks for {dt}...")
+        logging.info(f"Training {rounds} rounds with {len(df)} stocks in dataset for {dt}...")
     else:
-        logging.info(f"Training {rounds} rounds of {len(df)} stocks...")
+        logging.info(f"Training {rounds} rounds with {len(df)} stocks in dataset...")
 
     if len(df) < MIN_TRAINING_SIZE:
         logging.warning(f"Skipping because the number of stocks < {MIN_TRAINING_SIZE}...")
@@ -178,19 +178,23 @@ def generate_ffers_for_day(df: pd.DataFrame, dt=None, single_ticker=None, rounds
     calculate_overall_r2(df, rounds)
 
     raw_estimate_by_ticker = {}
-    if single_ticker:
-        single_ticker = single_ticker.upper()
-        estimate = generate_ffe_for_ticker(single_ticker, df, rounds)
-        market_cap = float(df[(df.ticker == single_ticker)]['marketCap'])
-        logging.info("FFER for %r: %.4f", single_ticker, market_cap / estimate)
-        raw_estimate_by_ticker[single_ticker] = estimate
+
+    if tickers:
+        unavailable_tickers = set(tickers) - set(list(df['ticker']))
+        for ticker in unavailable_tickers:
+            logging.warning(f"Ticker '{ticker}' not found in dataset. Continuing...")
+            tickers.remove(ticker)
     else:
-        def _gfds(ticker):
-            return ticker, generate_ffe_for_ticker(ticker, df=df, rounds=rounds)
-        for ticker, estimate in fastmap.fastmap(_gfds, df['ticker']):
-            market_cap = float(df[(df.ticker == ticker)]['marketCap'])
-            logging.info("FFER for %r: %.4f", ticker, market_cap / estimate)
-            raw_estimate_by_ticker[ticker] = estimate
+        tickers = set(list(df['ticker']))
+    logging.info(f"Building models for {len(tickers)} stocks.")
+
+    def _gfds(ticker):
+        return ticker, generate_ffe_for_ticker(ticker, df=df, rounds=rounds)
+
+    for ticker, estimate in fastmap.fastmap(_gfds, tickers):
+        market_cap = float(df[(df.ticker == ticker)]['marketCap'])
+        logging.info("FFER for %r: %.4f", ticker, market_cap / estimate)
+        raw_estimate_by_ticker[ticker] = estimate
 
     estimates = []
     for ticker, pred in raw_estimate_by_ticker.items():
@@ -250,9 +254,9 @@ def write_csv(estimates: ListOfDicts, output_csv: str) -> None:
     logging.info(f"Wrote estimates as {output_csv}")
 
 
-def generate_ffers_for_files(input_csvs: ListOfStrs, single_ticker: str,
-                             start_date: str, end_date: str,
-                             rounds: int, drop_incomplete_stocks: bool) -> ListOfDicts:
+def generate_for_files(input_csvs: ListOfStrs, tickers: list,
+                       start_date: str, end_date: str,
+                       rounds: int, drop_incomplete_stocks: bool) -> ListOfDicts:
     logging.info(f"Processing {len(input_csvs)} input file(s)")
     dfs = []
     for i, input_csv in enumerate(input_csvs):
@@ -275,7 +279,7 @@ def generate_ffers_for_files(input_csvs: ListOfStrs, single_ticker: str,
 
     if 'date' not in all_df:
         logging.info("No date column. Training on entire set")
-        return generate_ffers_for_day(all_df, single_ticker=single_ticker, rounds=rounds)
+        return generate_for_day(all_df, tickers=tickers, rounds=rounds)
 
     if start_date:
         all_df = all_df[all_df['date'] >= start_date]
@@ -292,12 +296,12 @@ def generate_ffers_for_files(input_csvs: ListOfStrs, single_ticker: str,
     logging.info(f"Processing {len(df_by_date)} dates")
     estimates = []
     for dt, df in sorted(df_by_date.items()):
-        estimates += generate_ffers_for_day(df, dt=dt, single_ticker=single_ticker, rounds=rounds)
+        estimates += generate_for_day(df, dt=dt, tickers=tickers, rounds=rounds)
     return estimates
 
 
 def generate_ffer(input_csvs: ListOfStrs, output_csv="ffer.csv", fastmap_config=None,
-                  single_ticker=None, start_date=None, end_date=None, rounds=None,
+                  tickers=None, start_date=None, end_date=None, rounds=None,
                   drop_incomplete_stocks=False, verbose=False) -> None:
     """Given a csv file, make estimates, log them, and write them to a CSV"""
 
@@ -308,8 +312,9 @@ def generate_ffer(input_csvs: ListOfStrs, output_csv="ffer.csv", fastmap_config=
         fastmap.global_init(exec_policy='LOCAL',
                             max_cloud_workers=10)
 
-    estimates = generate_ffers_for_files(input_csvs, single_ticker, start_date, end_date,
-                                         rounds, drop_incomplete_stocks)
+    tickers = tickers or []
+    estimates = generate_for_files(input_csvs, tickers, start_date, end_date,
+                                   rounds, drop_incomplete_stocks)
     if verbose:
         log_estimates(estimates, log_all=True)
     write_csv(estimates, output_csv)
@@ -327,8 +332,9 @@ if __name__ == "__main__":
     parser.add_argument("--fastmap-config",
                         help="Location of fastmap config file. If omitted, fastmap "
                              "will run locally.")
-    parser.add_argument("--ticker",
-                        help="Train for specific. If omitted, train for all tickers.")
+    parser.add_argument("--tickers",
+                        help="Train for specific tickers. Comma delimited. "
+                             "If omitted, train for all tickers.")
     parser.add_argument("--start-date",
                         help="Limit the data processed to on-or-after the YYYY-MM-DD date. "
                              "Only effective if input_csvs have a date column. "
@@ -337,7 +343,7 @@ if __name__ == "__main__":
                         help="Limit the data processed to before the YYYY-MM-DD date. "
                              "Only effective if input_csvs have a date column. "
                              "Default is to process all data.")
-    parser.add_argument("--training-rounds", default=50,
+    parser.add_argument("--training-rounds", default=100,
                         help="Iterations of psuedo-randomly spliting into test/train sets and "
                              "re-training. Results are later combined via bagged-ensemble.")
     parser.add_argument("--drop-incomplete-stocks", action="store_true",
@@ -357,7 +363,12 @@ if __name__ == "__main__":
         level = logging.INFO
     logging.basicConfig(format="%(levelname)s %(asctime)s: %(message)s", datefmt="%H:%M:%S",
                         level=level)
+    if args.tickers:
+        tickers = args.tickers.split(',')
+        tickers = list(filter(None, map(str.upper, map(str.strip, tickers))))
+    else:
+        tickers = []
 
-    generate_ffer(args.input_csvs, args.output_csv, args.fastmap_config, args.ticker,
+    generate_ffer(args.input_csvs, args.output_csv, args.fastmap_config, tickers,
                   args.start_date, args.end_date, int(args.training_rounds),
                   args.drop_incomplete_stocks, args.verbose)
